@@ -14,6 +14,14 @@ logger.info('Started timer')
 from picamera import PiCamera
 from PIL import Image
 from orbit import ISS
+import tflite_runtime.interpreter as tflite
+import numpy as np
+
+
+def convert(angle):
+		sign, degrees, minutes, seconds = angle.signed_dms()
+		exif_angle = f'{degrees:.0f}/1,{minutes:.0f}/1,{seconds*10:.0f}/10'
+		return sign < 0, exif_angle
 
 
 #camera
@@ -28,16 +36,9 @@ camera.iso = 120
 camera.shutter_speed = camera.exposure_speed
 camera.exposure_mode = 'off'
 
-def convert(angle):
-		sign, degrees, minutes, seconds = angle.signed_dms()
-		exif_angle = f'{degrees:.0f}/1,{minutes:.0f}/1,{seconds*10:.0f}/10'
-		return sign < 0, exif_angle
 
-
-#model
+#load model
 logger.info('Loading model...')
-import tflite_runtime.interpreter as tflite
-import numpy as np
 
 class_names = ['Clouds', 'Land', 'Night', 'Sea']
 
@@ -56,6 +57,8 @@ interpreter.allocate_tensors()
 
 logger.info('Done')
 
+
+#check if images folder exists
 if not os.path.exists(images_path):
 	logger.info('Creating images dir...')
 	os.makedirs(images_path)
@@ -76,6 +79,7 @@ while time.time() < running_time:
 	if size >= 2_950_000_000:
 		logger.warning('Reached max size')
 		break
+
 
 	#geo locations
 	point = ISS.coordinates()
@@ -107,6 +111,7 @@ while time.time() < running_time:
 
 
 	logger.info(klass)
+
 
 	#check
 	if klass == 'Sea':
