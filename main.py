@@ -31,42 +31,70 @@ camera = PiCamera(resolution=(2592, 1944))
 time.sleep(1)
 logger.info('Done')
 
-camera.iso = 120
-
 camera.shutter_speed = camera.exposure_speed
 camera.exposure_mode = 'off'
 
+ai = False
+try:
+	#load model
+	logger.info('Loading model...')
 
-#load model
-logger.info('Loading model...')
+	class_names = ['Clouds', 'Land', 'Night', 'Sea']
 
-class_names = ['Clouds', 'Land', 'Night', 'Sea']
+	model_path = os.path.join(base, 'model.tflite')
 
-model_path = os.path.join(base, 'model.tflite')
+	interpreter = tflite.Interpreter(model_path=model_path,
+		experimental_delegates=[
+			tflite.load_delegate('libedgetpu.so.1')
+		]
+	)
 
-interpreter = tflite.Interpreter(model_path=model_path,
-	experimental_delegates=[
-		tflite.load_delegate('libedgetpu.so.1')
-	]
-)
+	shape = interpreter.get_input_details()[0]['shape']
+	shape = (shape[1], shape[2])
 
-shape = interpreter.get_input_details()[0]['shape']
-shape = (shape[1], shape[2])
+	interpreter.allocate_tensors()
+except BaseException:
+	logger.warning('Failed to load model. Retrying in 5 secs')
+	time.sleep(5)
+	try:
+		#load model
+		logger.info('Loading model...')
 
-interpreter.allocate_tensors()
+		class_names = ['Clouds', 'Land', 'Night', 'Sea']
 
-logger.info('Done')
+		model_path = os.path.join(base, 'model.tflite')
 
+		interpreter = tflite.Interpreter(model_path=model_path,
+			experimental_delegates=[
+				tflite.load_delegate('libedgetpu.so.1')
+			]
+		)
+
+		shape = interpreter.get_input_details()[0]['shape']
+		shape = (shape[1], shape[2])
+
+		interpreter.allocate_tensors()
+	except BaseException:
+		logger.warning('Failed to load model')
+	else:
+		logger.info('Done')
+		ai = True
+else:
+	logger.info('Done')
+	ai = True
+finally:
+	logger.info(f'AI is {"on" if ai else "off"}')
 
 #check if images folder exists
 if not os.path.exists(images_path):
 	logger.info('Creating images dir...')
 	try:
 		os.makedirs(images_path)
-		logger.info('Done')
 	except BaseException:
 		logger.warning('Failed to create images directory. Saving in root folder')
 		images_path = base
+	else:
+		logger.info('Done')
 
 
 
@@ -84,6 +112,8 @@ while time.time() < running_time:
 		if size >= 2_950_000_000:
 			logger.warning('Reached max size')
 			break
+	except KeyboardInterrupt:
+		break
 	except BaseException:
 		logger.warning('Failed to check size')
 
@@ -99,6 +129,8 @@ while time.time() < running_time:
 		camera.exif_tags['GPS.GPSLatitudeRef'] = "S" if south else "N"
 		camera.exif_tags['GPS.GPSLongitude'] = exif_longitude
 		camera.exif_tags['GPS.GPSLongitudeRef'] = "W" if west else "E"
+	except KeyboardInterrupt:
+		break
 	except BaseException:
 		logger.warning('Failed to retrieve GPS data')
 
@@ -108,45 +140,47 @@ while time.time() < running_time:
 		name = 'img_{}'.format(time.strftime('%H_%M_%S', time.gmtime()))
 
 		camera.capture(os.path.join(images_path, name + '.jpg'))
+	except KeyboardInterrupt:
+		break
 	except BaseException:
 		logger.warning('Failed to capture')
 	else:
 
-
-		try:
-			#classify
-			model_img = Image.open(os.path.join(images_path, name + '.jpg')).convert('RGB').resize(shape)
-
-			interpreter.tensor(interpreter.get_input_details()[0]['index'])()[0][:, :] = model_img
-
-			interpreter.invoke()
-
-			scores = np.squeeze(interpreter.get_tensor(interpreter.get_output_details()[0]['index']))
-
-			klass = class_names[int(np.where(scores == max(scores))[0])]
-
-
-			logger.info(klass)
-		except BaseException:
-			logger.warning('Failed to classify')
-		else:
-
-
+		if ai:
 			try:
-				#check
-				if klass == 'Sea':
-					logger.info(f'Saved {name}')
-					time.sleep(1)
-				elif klass == 'Clouds':
-					logger.info(f'Saved {name}')
-					time.sleep(2)
-				elif klass == 'Night':
-					os.remove(os.path.join(images_path, name + '.jpg'))
-					time.sleep(10)
-				else:
-					os.remove(os.path.join(images_path, name + '.jpg'))
-					time.sleep(2)
+				#classify
+				model_img = Image.open(os.path.join(images_path, name + '.jpg')).convert('RGB').resize(shape)
+
+				interpreter.tensor(interpreter.get_input_details()[0]['index'])()[0][:, :] = model_img
+
+				interpreter.invoke()
+
+				scores = np.squeeze(interpreter.get_tensor(interpreter.get_output_details()[0]['index']))
+
+				klass = class_names[int(np.where(scores == max(scores))[0])]
+
+
+				logger.info(klass)
 			except BaseException:
 				logger.warning('Failed to classify')
+			else:
+
+
+				try:
+					#check
+					if klass == 'Sea':
+						logger.info(f'Saved {name}')
+						time.sleep(1)
+					elif klass == 'Clouds':
+						logger.info(f'Saved {name}')
+						time.sleep(2)
+					elif klass == 'Night':
+						os.remove(os.path.join(images_path, name + '.jpg'))
+						time.sleep(10)
+					else:
+						os.remove(os.path.join(images_path, name + '.jpg'))
+						time.sleep(2)
+				except BaseException:
+					logger.warning('Failed to classify')
 
 logger.warning('Time\'s over')
