@@ -61,70 +61,92 @@ logger.info('Done')
 #check if images folder exists
 if not os.path.exists(images_path):
 	logger.info('Creating images dir...')
-	os.makedirs(images_path)
-	logger.info('Done')
+	try:
+		os.makedirs(images_path)
+		logger.info('Done')
+	except BaseException:
+		logger.warning('Failed to create images directory. Saving in root folder')
+		images_path = base
 
 
 
 logger.info('Starting experiment')
 while time.time() < running_time:
 
-	#check space
-	size = 0
-	for path, dirs, files in os.walk(base):
-		for f in files:
-			fp = os.path.join(path, f)
-			size += os.path.getsize(fp)
+	try:
+		#check space
+		size = 0
+		for path, dirs, files in os.walk(base):
+			for f in files:
+				fp = os.path.join(path, f)
+				size += os.path.getsize(fp)
 
-	if size >= 2_950_000_000:
-		logger.warning('Reached max size')
-		break
-
-
-	#geo locations
-	point = ISS.coordinates()
-
-	south, exif_latitude = convert(point.latitude)
-	west, exif_longitude = convert(point.longitude)
-
-	camera.exif_tags['GPS.GPSLatitude'] = exif_latitude
-	camera.exif_tags['GPS.GPSLatitudeRef'] = "S" if south else "N"
-	camera.exif_tags['GPS.GPSLongitude'] = exif_longitude
-	camera.exif_tags['GPS.GPSLongitudeRef'] = "W" if west else "E"
-
-	#take photo
-	name = 'img_{}'.format(time.strftime('%H_%M_%S', time.gmtime()))
-
-	camera.capture(os.path.join(images_path, name + '.jpg'))
+		if size >= 2_950_000_000:
+			logger.warning('Reached max size')
+			break
+	except BaseException:
+		logger.warning('Failed to check size')
 
 
-	#classify
-	model_img = Image.open(os.path.join(images_path, name + '.jpg')).convert('RGB').resize(shape)
+	try:
+		#geo locations
+		point = ISS.coordinates()
 
-	interpreter.tensor(interpreter.get_input_details()[0]['index'])()[0][:, :] = model_img
+		south, exif_latitude = convert(point.latitude)
+		west, exif_longitude = convert(point.longitude)
 
-	interpreter.invoke()
-
-	scores = np.squeeze(interpreter.get_tensor(interpreter.get_output_details()[0]['index']))
-
-	klass = class_names[int(np.where(scores == max(scores))[0])]
-
-
-	logger.info(klass)
+		camera.exif_tags['GPS.GPSLatitude'] = exif_latitude
+		camera.exif_tags['GPS.GPSLatitudeRef'] = "S" if south else "N"
+		camera.exif_tags['GPS.GPSLongitude'] = exif_longitude
+		camera.exif_tags['GPS.GPSLongitudeRef'] = "W" if west else "E"
+	except BaseException:
+		logger.warning('Failed to retrieve GPS data')
 
 
-	#check
-	if klass == 'Sea':
-		logger.info(f'Saved {name}')
-		time.sleep(1)
-	elif klass == 'Clouds':
-		logger.info(f'Saved {name}')
-		time.sleep(2)
-	elif klass == 'Night':
-		os.remove(os.path.join(images_path, name + '.jpg'))
-		time.sleep(10)
+	try:
+		#take photo
+		name = 'img_{}'.format(time.strftime('%H_%M_%S', time.gmtime()))
+
+		camera.capture(os.path.join(images_path, name + '.jpg'))
+	except BaseException:
+		logger.warning('Failed to capture')
 	else:
-		os.remove(os.path.join(images_path, name + '.jpg'))
-		time.sleep(2)
+
+
+		try:
+			#classify
+			model_img = Image.open(os.path.join(images_path, name + '.jpg')).convert('RGB').resize(shape)
+
+			interpreter.tensor(interpreter.get_input_details()[0]['index'])()[0][:, :] = model_img
+
+			interpreter.invoke()
+
+			scores = np.squeeze(interpreter.get_tensor(interpreter.get_output_details()[0]['index']))
+
+			klass = class_names[int(np.where(scores == max(scores))[0])]
+
+
+			logger.info(klass)
+		except BaseException:
+			logger.warning('Failed to classify')
+		else:
+
+
+			try:
+				#check
+				if klass == 'Sea':
+					logger.info(f'Saved {name}')
+					time.sleep(1)
+				elif klass == 'Clouds':
+					logger.info(f'Saved {name}')
+					time.sleep(2)
+				elif klass == 'Night':
+					os.remove(os.path.join(images_path, name + '.jpg'))
+					time.sleep(10)
+				else:
+					os.remove(os.path.join(images_path, name + '.jpg'))
+					time.sleep(2)
+			except BaseException:
+				logger.warning('Failed to classify')
 
 logger.warning('Time\'s over')
