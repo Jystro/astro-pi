@@ -183,4 +183,4 @@ while time.time() < running_time:
 				except BaseException:
 					logger.warning('Failed to classify')
 
-logger.warning('Time\'s over')
+logger.info('Time\'s over')
